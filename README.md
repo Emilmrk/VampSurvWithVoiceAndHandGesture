@@ -56,3 +56,23 @@
 4. **Captura de Pantalla**: Di "captura" para tomar una captura de pantalla.
 5. **Salir del Programa**: Di "salir del programa" para cerrar el programa.
 
+## Comandos Disponibles
+
+Aquí tienes una lista de todos los comandos de voz disponibles para controlar el juego:
+
+- **abrir juego**: Inicia el juego "Vampire Survivors".
+- **cerrar juego**: Cierra el juego "Vampire Survivors".
+- **arriba**: Mueve el personaje hacia arriba.
+- **abajo**: Mueve el personaje hacia abajo.
+- **izquierda**: Mueve el personaje hacia la izquierda.
+- **derecha**: Mueve el personaje hacia la derecha.
+- **mover**: Activa el modo arrastre del cursor.
+- **detener**: Desactiva el modo arrastre del cursor.
+- **enter**: Simula la pulsación de la tecla Enter.
+- **escape**: Simula la pulsación de la tecla Escape.
+- **captura**: Toma una captura de pantalla.
+- **salir del programa**: Cierra el programa.
+
+Para mayor comodidad, mueve el cursor al centro de la pantalla utilizando gestos de la mano antes de activar el comando "mover". Esto asegura que el arrastre se aplique desde el centro de la pantalla.
+
+
