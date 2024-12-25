@@ -21,3 +21,38 @@
 1. Clona este repositorio:
    ```bash
    git clone https://github.com/Emilmrk/VampSurvWithVoiceAndHandGesture.git
+
+2. Navega al directorio del proyecto:
+   ```bash
+   cd VampSurvWithVoiceAndHandGesture
+
+3. Crea y activa un entorno virtual (opcional, pero recomendado):
+   ```bash
+   python -m venv venv
+   source venv/bin/activate # En Windows, usa `venv\Scripts\activate`
+
+4. Instala las dependencias:
+   ```bash
+   pip install -r requirements.txt
+   
+5. Cambia la ruta del juego en game.py a la ruta donde tienes instalado "Vampire Survivors":
+   ```bash
+   pip install -r requirements.txt
+   # Cambia esta línea:
+   game_path = "E:\\Steam\\steamapps\\common\\Vampire Survivors\\VampireSurvivors.exe"
+   # a la ruta de tu instalación del juego
+
+6. Ejecuta el proyecto:
+   ```bash
+   python main.py
+
+
+
+## Uso
+
+1. **Iniciar el Juego**: Usa el comando de voz "abrir juego" para iniciar "Vampire Survivors".
+2. **Control del Personaje**: Utiliza comandos de voz como "arriba", "abajo", "izquierda", "derecha", "enter" y "escape".
+3. **Modo Arrastre**: Di "mover" para activar el modo arrastre y "detener" para desactivarlo.
+4. **Captura de Pantalla**: Di "captura" para tomar una captura de pantalla.
+5. **Salir del Programa**: Di "salir del programa" para cerrar el programa.
+
