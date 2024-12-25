@@ -11,14 +11,14 @@ def reconocer_voz():
 
             try:
                 texto = recognizer.recognize_google(audio, language="es-ES").lower()
-                print("Has dicho: " + texto)  # Imprime el texto reconocido en la consola
-                return texto  # Solo sale del ciclo al reconocer correctamente
+                print("Has dicho: " + texto)
+                return texto
             except sr.UnknownValueError:
                 print("Lo siento, no pude entender lo que dijiste. Intenta de nuevo.")
-                continue  # Aseguramos que siempre continúa después de manejar una excepción
+                continue
             except sr.RequestError as e:
                 print(f"No pude acceder al servicio de Google. Error: {e}. Verifica tu conexión.")
-                continue  # Aseguramos que siempre continúa después de manejar una excepción
+                continue
 
         print("Reintentando...")
-        time.sleep(1)  # Pausa breve antes de reintentar
+        time.sleep(1)

@@ -4,8 +4,9 @@ from voz import reconocer_voz
 import threading
 import pyautogui
 import datetime
+import time
 
-modo_arrastre = False  # Variable global para el modo de arrastre
+modo_arrastre = False
 
 def is_process_running(process_name):
     for proc in psutil.process_iter(['name']):
@@ -37,54 +38,56 @@ def take_screenshot():
     print(f"Captura de pantalla guardada como {screenshot_path}")
 
 def ejecutar_comando(comando, stop_event):
-    global modo_arrastre  # Declarar la variable global
+    global modo_arrastre
 
-    print(f"Ejecutando comando: {comando}")  # Mensaje de depuración
+    print(f"Ejecutando comando: {comando}")
+
+    comandos = comando.split()
+    for cmd in comandos:
+        if cmd == "abrir" and "juego" in comandos:
+            open_game()
+        elif cmd == "cerrar" and "juego" in comandos:
+            close_game()
+        elif cmd == "salir" and "programa" in comandos:
+            print("Saliendo del programa...")
+            stop_event.set()
+            return False
+        elif cmd == "arriba":
+            pyautogui.press("up")
+        elif cmd == "abajo":
+            pyautogui.press("down")
+        elif cmd == "izquierda":
+            pyautogui.press("left")
+        elif cmd == "derecha":
+            pyautogui.press("right")
+        elif cmd == "mover":
+            modo_arrastre = True
+            pyautogui.mouseDown()
+            print("Modo arrastre activado.")
+        elif cmd == "detener":
+            modo_arrastre = False
+            pyautogui.mouseUp() 
+            print("Modo arrastre desactivado.")
+        elif cmd == "enter":
+            pyautogui.press("enter")
+            print("Enter presionado.")
+        elif cmd == "escape":
+            pyautogui.press("esc")
+            print("Escape presionado.")
+        elif cmd == "captura":
+            take_screenshot()
     
-    if "abrir juego" in comando:
-        open_game()
-    elif "cerrar juego" in comando:
-        close_game()
-    elif "salir del programa" in comando:
-        print("Saliendo del programa...")
-        stop_event.set()  # Señal para detener los hilos
-        return False
-    elif "arriba" in comando:
-        pyautogui.press("up")
-    elif "abajo" in comando:
-        pyautogui.press("down")
-    elif "izquierda" in comando:
-        pyautogui.press("left")
-    elif "derecha" in comando:
-        pyautogui.press("right")
-    elif "mover" in comando:
-        modo_arrastre = True
-        pyautogui.mouseDown()  # Activar el clic del ratón
-        print("Modo arrastre activado.")
-        print(f"Estado de modo_arrastre: {modo_arrastre}")  # Mensaje de depuración
-    elif "detener" in comando:
-        modo_arrastre = False
-        pyautogui.mouseUp()  # Asegurarse de soltar el arrastre si estaba activado
-        print("Modo arrastre desactivado.")
-        print(f"Estado de modo_arrastre: {modo_arrastre}")  # Mensaje de depuración
-    elif "enter" in comando:
-        pyautogui.press("enter")
-        print("Enter presionado.")
-    elif "escape" in comando:
-        pyautogui.press("esc")
-        print("Escape presionado.")
-    elif "captura" in comando:
-        take_screenshot()
     return True
 
 def iniciar_juego():
     print("Sistema iniciado")
-    # Aquí podrías iniciar cualquier otra configuración inicial
 
 def controlar_juego(stop_event):
     while not stop_event.is_set():
+        start_time = time.time()
         comando_voz = reconocer_voz()
-        print(f"Comando de voz reconocido: {comando_voz}")  # Este mensaje imprime el comando reconocido
+        print(f"Comando de voz reconocido: {comando_voz}")
         continuar = ejecutar_comando(comando_voz, stop_event)
         if not continuar:
             break
+        print(f"Tiempo de ejecución: {time.time() - start_time} segundos")

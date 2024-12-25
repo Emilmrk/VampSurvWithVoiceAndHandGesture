@@ -2,14 +2,14 @@ import cv2
 import mediapipe as mp
 import pyautogui
 import threading
-from game import modo_arrastre  # Import the drag mode
+from game import modo_arrastre 
 
 def reconocer_gestos(stop_event):
-    print("Función reconocer_gestos iniciada.")  # Mensaje de depuración
-    print("Intentando abrir la cámara...")  # Mensaje de depuración
+    print("Función reconocer_gestos iniciada.") 
+    print("Intentando abrir la cámara...")  
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        print("Error: No se pudo abrir la cámara.")  # Mensaje de depuración para fallo de apertura de cámara
+        print("Error: No se pudo abrir la cámara.")  
         return
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -28,7 +28,7 @@ def reconocer_gestos(stop_event):
     while not stop_event.is_set():
         ret, frame = cap.read()
         if not ret:
-            print("Error: No se pudo leer el frame de la cámara.")  # Mensaje de depuración para fallo de lectura de frame
+            print("Error: No se pudo leer el frame de la cámara.")
             break
 
         frame_counter += 1
@@ -41,7 +41,7 @@ def reconocer_gestos(stop_event):
             hands = output.multi_hand_landmarks
 
             if hands:
-                print("Manos detectadas.")  # Mensaje de depuración
+                print("Manos detectadas.")
                 for hand in hands:
                     drawing_utils.draw_landmarks(frame, hand)
                     landmarks = hand.landmark
@@ -49,30 +49,29 @@ def reconocer_gestos(stop_event):
                         x = int(landmark.x * frame_width)
                         y = int(landmark.y * frame_height)
                         
-                        if id == 8:  # Índice
+                        if id == 8:
                             index_x = screen_width / frame_width * x
                             index_y = screen_height / frame_height * y
-                            print(f"Coordenadas índice: ({index_x}, {index_y})")  # Mensaje de depuración
+                            print(f"Coordenadas índice: ({index_x}, {index_y})")
 
-                        if id == 4:  # Pulgar
+                        if id == 4:
                             thumb_x = screen_width / frame_width * x
                             thumb_y = screen_height / frame_height * y
-                            print(f"Coordenadas pulgar: ({thumb_x}, {thumb_y})")  # Mensaje de depuración
+                            print(f"Coordenadas pulgar: ({thumb_x}, {thumb_y})") 
 
-                    # Siempre mueve el cursor
-                    safe_margin = 50  # Margen de seguridad para evitar las esquinas
+                    safe_margin = 50  
                     index_x = max(min(index_x, screen_width - safe_margin), safe_margin)
                     index_y = max(min(index_y, screen_height - safe_margin), safe_margin)
                     pyautogui.moveTo(index_x, index_y)
 
                     if modo_arrastre:
-                        pyautogui.mouseDown()  # Mantén el clic del ratón
-                        print("Modo arrastre activado.")  # Mensaje de depuración
+                        pyautogui.mouseDown()
+                        print("Modo arrastre activado.")
 
             else:
                 if modo_arrastre:
-                    pyautogui.mouseDown()  # Asegúrate de que el clic se mantiene incluso si no se detectan manos
-                    print("Manteniendo clic en modo arrastre.")  # Mensaje de depuración
+                    pyautogui.mouseDown()
+                    print("Manteniendo clic en modo arrastre.") 
 
             cv2.imshow('Virtual Mouse', frame)
         
