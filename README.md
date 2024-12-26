@@ -31,9 +31,10 @@
    python -m venv venv
    source venv/bin/activate # En Windows, usa `venv\Scripts\activate`
 
-4. Instala las dependencias:
+4. Instala las dependencias(Buscar una version de Pyaudio compatible con su sistema operativo en https://pypi.org/project/PyAudio/#files y descargarlo, luego instalarlo con pip):
    ```bash
    pip install -r requirements.txt
+   pip install .\PyAudio-0.2.14-cp312-cp312-win_amd64.whl 
    
 5. Cambia la ruta del juego en game.py a la ruta donde tienes instalado "Vampire Survivors":
    ```bash
