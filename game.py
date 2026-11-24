@@ -2,29 +2,21 @@
 Módulo de control del juego y ejecución de comandos.
 Soporta PyDirectInput en Windows (DirectX) y PyAutoGUI con tolerancia multiplataforma (Linux / macOS / Windows).
 """
-import subprocess
-import psutil
+import ctypes
 import datetime
-import json
+import difflib
 import os
 import sys
 import threading
 import time
 
-from state import app_state
 import config
-from launcher import (
-    open_game,
-    close_game,
-    verificar_o_configurar_juego,
-    is_process_running,
-    buscar_rutas_steam_comunes,
-    cargar_config_usuario,
-    guardar_config_usuario,
-)
+from state import app_state
+from launcher import open_game, close_game
 
 # Configuración de simulación de periféricos
 USE_DIRECT_INPUT = False
+_user32 = ctypes.windll.user32 if sys.platform.startswith("win") else None
 
 if sys.platform.startswith("win") and getattr(config, "PREFER_PYDIRECTINPUT", True):
     try:
@@ -57,12 +49,12 @@ else:
 
 
 def take_screenshot():
-    """Toma una captura de pantalla con timestamp."""
+    """Toma una captura de pantalla con timestamp en la carpeta screenshots/."""
     if input_engine is None:
         return
-    os.makedirs("assets", exist_ok=True)
+    os.makedirs("screenshots", exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    screenshot_path = os.path.join("assets", f"screenshot_{timestamp}.png")
+    screenshot_path = os.path.join("screenshots", f"screenshot_{timestamp}.png")
     try:
         import pyautogui
         pyautogui.screenshot(screenshot_path)
@@ -168,10 +160,9 @@ def click_mouse(button="right", clicks=1):
 
 def mover_mouse(x: int, y: int):
     """Mueve el cursor a coordenadas absolutas de pantalla con latencia mínima."""
-    if sys.platform.startswith("win"):
+    if _user32 is not None:
         try:
-            import ctypes
-            ctypes.windll.user32.SetCursorPos(int(x), int(y))
+            _user32.SetCursorPos(int(x), int(y))
             return
         except Exception:
             pass
@@ -207,6 +198,8 @@ def _ejecutar_accion_canonica(accion: str) -> bool:
         print("[SISTEMA] Cerrando aplicación por comando de voz...")
         app_state.stop_event.set()
         return False
+    elif accion == "cambiar_modo":
+        cycle_control_mode()
     elif accion == "modo_raton":
         release_all_keys()
         app_state.control_mode = "mouse"
@@ -241,6 +234,8 @@ def _ejecutar_accion_canonica(accion: str) -> bool:
         print("[ESTADO] Movimiento/arrastre DETENIDO")
     elif accion == "doble_clic":
         click_mouse(button="left", clicks=2)
+    elif accion == "clic_derecho":
+        click_mouse(button="right", clicks=1)
     elif accion == "clic":
         click_mouse(button="left", clicks=1)
     elif accion == "espacio":
@@ -277,7 +272,6 @@ def _normalizar_texto(texto: str) -> str:
 
 def _detectar_accion_local(comando: str) -> str | None:
     """Coincidencia rápida sin red (<1 ms) con tolerancia a sinónimos y errores fonéticos leves."""
-    import difflib
     cmd = _normalizar_texto(comando)
 
     if "abrir juego" in cmd or "iniciar juego" in cmd or "abre el juego" in cmd:
@@ -286,14 +280,18 @@ def _detectar_accion_local(comando: str) -> str | None:
         return "cerrar_juego"
     if "salir" in cmd and any(w in cmd for w in ("programa", "aplicacion", "sistema")):
         return "salir_programa"
+    if any(p in cmd for p in ("cambiar modo", "cambio de modo", "siguiente modo", "cambia de modo")):
+        return "cambiar_modo"
     if any(p in cmd for p in ("modo raton", "modo mouse", "usar raton", "usar mouse")):
         return "modo_raton"
     if any(p in cmd for p in ("modo teclado", "modo wasd")):
         return "modo_wasd"
     if any(p in cmd for p in ("modo flechas", "las flechitas", "usar flechas")):
         return "modo_flechas"
-    if "doble clic" in cmd or "doble click" in cmd:
+    if any(p in cmd for p in ("doble clic", "doble click")):
         return "doble_clic"
+    if any(p in cmd for p in ("clic derecho", "click derecho", "boton derecho")):
+        return "clic_derecho"
 
     palabras = cmd.split()
     for p in palabras:

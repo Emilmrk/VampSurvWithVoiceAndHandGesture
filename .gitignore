@@ -12,6 +12,7 @@ ENV/
 # Configuración personal de usuario
 user_config.json
 .env
+screenshots/
 .vscode/
 .idea/
 *.log
