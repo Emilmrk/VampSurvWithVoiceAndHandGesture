@@ -1,1 +1,17 @@
-ArqCom/
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+venv/
+.venv/
+env/
+ENV/
+
+# Configuración personal de usuario
+user_config.json
+.env
+.vscode/
+.idea/
+*.log
