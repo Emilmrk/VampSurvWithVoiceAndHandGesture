@@ -1,79 +1,124 @@
 # VampSurvWithVoiceAndHandGesture
 
-**VampSurvWithVoiceAndHandGesture** es un proyecto innovador que permite controlar el juego "Vampire Survivors" utilizando comandos de voz y gestos de la mano. Este proyecto integra tecnologías de reconocimiento de voz y gestos con Python para proporcionar una experiencia de juego interactiva y accesible.
+Sistema de **Interacción Humano-Computador (IHC) y Accesibilidad** desarrollado en Python para controlar la computadora y jugar a **Vampire Survivors** (u otros títulos compatibles) sin necesidad de teclado ni ratón físico, combinando **Visión por Computador** y **Reconocimiento de Voz Inteligente**.
+
+---
+
+## Arquitectura del Proyecto
+
+```text
+├── main.py            # Punto de entrada, gestión de hilos y manejo seguro de Ctrl+C / --config
+├── config.py          # Configuración global (cámara 60 FPS, sensibilidad, ROI, carga de .env)
+├── state.py           # Estado compartido thread-safe entre hilos (AppState)
+├── gestos.py          # Visión por computador (MediaPipe Hands, suavizado EMA, Joystick Virtual)
+├── voz.py             # Captura y transcripción de voz (Vosk offline / Google Speech API)
+├── nlu.py             # Intérprete NLU con Gemini API y rotación automática de modelos por cuota
+├── game.py            # Simulación de periféricos (PyDirectInput/PyAutoGUI) y selector de juego
+├── testvoz.py         # Utilidad de diagnóstico rápido para micrófono y reconocimiento de voz
+├── runandawait.py     # Utilidad de prueba para síntesis de voz (Text-to-Speech)
+├── requirements.txt   # Dependencias del proyecto
+├── .env.example       # Plantilla de variables de entorno (copiar a .env para usar Gemini NLU)
+├── assets/            # Capturas de pantalla generadas y recursos
+└── wheels/            # Instalador precompilado de PyAudio para Windows (Python 3.12)
+```
+
+---
 
 ## Características Principales
 
-- **Control por Voz**: Utiliza comandos de voz para mover el personaje, pausar/reanudar el juego, tomar capturas de pantalla y realizar otras acciones.
-- **Control por Gestos**: Utiliza gestos de la mano para mover el cursor del ratón y realizar acciones en el juego.
-- **Modo Arrastre**: Activa un modo de clic permanente mediante comandos de voz, perfecto para controlar personajes que siguen al cursor.
-- **Compatibilidad**: Diseñado específicamente para el juego "Vampire Survivors", pero fácilmente adaptable a otros juegos o aplicaciones.
+1. **Control Gestual de Baja Latencia (60 FPS)**:
+   - Auto-detección de cámara con backend DirectShow (`CAP_DSHOW`) en Windows.
+   - **Suavizado Exponencial (EMA)** y **Zona Activa de Interacción (ROI)** para evitar temblores en el cursor y reducir la fatiga del brazo.
+   - **Modo Mouse** y **Modo Joystick Virtual (`WASD` / `Flechas`)** con detección de diagonales.
+2. **Reconocimiento de Voz Híbrido (Offline + NLU con Gemini)**:
+   - Prioriza **Vosk** (procesamiento local offline con latencia < 50 ms) con respaldo automático en Google Web Speech API.
+   - **Coincidencia local instantánea** para comandos directos (`< 1 ms`).
+   - **Comprensión natural con Gemini API** (opcional, vía `.env`): si el micrófono transcribe mal una palabra o hablas de forma natural (ej. *"pausa el juego por favor"*, *"suelta el mouse"*), Gemini interpreta la intención y ejecuta la acción correcta.
+   - **Router dinámico de modelos**: lista automáticamente los modelos disponibles en tu cuenta de Google, prioriza el más avanzado y rota al siguiente si se agota la cuota, volviendo al modelo superior cuando la cuota se recupera.
+3. **Selector Flexible de Juego y Modo Libre**:
+   - Auto-detecta la instalación de *Vampire Survivors* en rutas comunes de Steam.
+   - Permite elegir cualquier otro ejecutable `.exe` mediante explorador de archivos o trabajar en **Modo Libre** sin abrir ningún juego (guardando la preferencia en `user_config.json`).
+4. **Cierre Seguro y Multiplataforma**:
+   - Múltiples formas de detener el sistema sin depender de la voz: tecla **`q`**, botón **`[X]`** de la ventana o **`Ctrl + C`** en consola, liberando automáticamente clics y teclas activas.
 
-## Tecnologías Utilizadas
+---
 
-- **Python**: El lenguaje principal utilizado para la lógica del juego y los comandos.
-- **Mediapipe**: Biblioteca utilizada para el reconocimiento de gestos de la mano.
-- **Pyautogui**: Biblioteca utilizada para controlar el ratón y el teclado.
-- **SpeechRecognition**: Biblioteca para el reconocimiento de voz.
+## Instalación y Configuración
 
-## Instalación
+> [!TIP]
+> Se recomienda ampliamente crear un **entorno virtual (`venv`)** para aislar las dependencias del proyecto y evitar conflictos con otras instalaciones de Python.
 
-1. Clona este repositorio:
-   ```bash
-   git clone https://github.com/Emilmrk/VampSurvWithVoiceAndHandGesture.git
+### 1. Clonar el repositorio y crear el entorno virtual
+```powershell
+git clone <URL_DEL_REPOSITORIO>
+cd IHCfinal
 
-2. Navega al directorio del proyecto:
-   ```bash
-   cd VampSurvWithVoiceAndHandGesture
+# Crear entorno virtual (recomendado Python 3.12)
+python -m venv venv
 
-3. Crea y activa un entorno virtual (opcional, pero recomendado):
-   ```bash
-   python -m venv venv
-   source venv/bin/activate # En Windows, usa `venv\Scripts\activate`
+# Activar entorno virtual en Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
+```
+*(En Linux/macOS usa `source venv/bin/activate`. Si PowerShell bloquea scripts, ejecuta previamente `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`).*
 
-4. Instala las dependencias(Buscar una version de Pyaudio compatible con su sistema operativo en https://pypi.org/project/PyAudio/#files y descargarlo, luego instalarlo con pip):
-   ```bash
-   pip install -r requirements.txt
-   pip install .\PyAudio-0.2.14-cp312-cp312-win_amd64.whl 
-   
-5. Cambia la ruta del juego en game.py a la ruta donde tienes instalado "Vampire Survivors":
-   ```bash
-   pip install -r requirements.txt
-   # Cambia esta línea:
-   game_path = "E:\\Steam\\steamapps\\common\\Vampire Survivors\\VampireSurvivors.exe"
-   # a la ruta de tu instalación del juego
+### 2. Instalar dependencias
+```powershell
+pip install -r requirements.txt
+```
+*(Si `pyaudio` falla al compilar en Windows por falta de Visual C++ Build Tools, instala el paquete precompilado incluido):*
+```powershell
+pip install .\wheels\PyAudio-0.2.14-cp312-cp312-win_amd64.whl
+```
 
-6. Ejecuta el proyecto:
-   ```bash
-   python main.py
+### 3. Configurar comprensión natural con Gemini API (Opcional)
+Copia la plantilla `.env.example` a un archivo `.env` en la raíz del proyecto e ingresa tu clave gratuita de [Google AI Studio](https://aistudio.google.com/apikey):
 
+```powershell
+Copy-Item .env.example .env
+```
+Edita `.env`:
+```env
+GEMINI_API_KEY=tu_clave_de_api_aqui
+GEMINI_MODEL=auto
+```
+*(El archivo `.env` está incluido en `.gitignore` para proteger tus credenciales).*
 
+---
 
-## Uso
+## Ejecución
 
-1. **Iniciar el Juego**: Usa el comando de voz "abrir juego" para iniciar "Vampire Survivors".
-2. **Control del Personaje**: Utiliza comandos de voz como "arriba", "abajo", "izquierda", "derecha", "enter" y "escape".
-3. **Modo Arrastre**: Di "mover" para activar el modo arrastre y "detener" para desactivarlo.
-4. **Captura de Pantalla**: Di "captura" para tomar una captura de pantalla.
-5. **Salir del Programa**: Di "salir del programa" para cerrar el programa.
+```powershell
+# Iniciar el sistema completo (auto-detecta el juego o abre el asistente de configuración)
+python main.py
 
-## Comandos Disponibles
+# Forzar el menú de selección de juego o cambio de ruta
+python main.py --config
 
-Aquí tienes una lista de todos los comandos de voz disponibles para controlar el juego:
+# Probar únicamente el micrófono y el reconocimiento de voz
+python testvoz.py
+```
 
-- **abrir juego**: Inicia el juego "Vampire Survivors".
-- **cerrar juego**: Cierra el juego "Vampire Survivors".
-- **arriba**: Mueve el personaje hacia arriba.
-- **abajo**: Mueve el personaje hacia abajo.
-- **izquierda**: Mueve el personaje hacia la izquierda.
-- **derecha**: Mueve el personaje hacia la derecha.
-- **mover**: Activa el modo arrastre del cursor.
-- **detener**: Desactiva el modo arrastre del cursor.
-- **enter**: Simula la pulsación de la tecla Enter.
-- **escape**: Simula la pulsación de la tecla Escape.
-- **captura**: Toma una captura de pantalla.
-- **salir del programa**: Cierra el programa.
+---
 
-Para mayor comodidad, mueve el cursor al centro de la pantalla utilizando gestos de la mano antes de activar el comando "mover". Esto asegura que el arrastre se aplique desde el centro de la pantalla.
+## Guía de Controles
 
+### Gestos de la Mano y Atajos en Ventana
+| Gesto / Atajo | Modo | Acción |
+| :--- | :--- | :--- |
+| **Mover dedo índice** | Mouse | Desplaza el cursor dentro de la Zona Activa (ROI). |
+| **Inclinar la mano** | Joystick (`WASD`/`Flechas`) | Activa movimiento direccional y diagonales fuera de la zona muerta. |
+| **Pellizco (Pulgar + Índice)** | Mouse / Joystick | Clic izquierdo sostenido (arrastre) / Tecla `Espacio` en Joystick. |
+| **Pellizco (Pulgar + Medio)** | Mouse | Clic derecho (menús o cofres). |
+| **Palma Abierta (5 dedos)** | Todos | **Freno de seguridad**: suelta al instante cualquier clic o tecla activa. |
+| **Tecla `M`** (en ventana) | — | Alterna entre **Modo Mouse**, **Modo WASD** y **Modo Flechas**. |
+| **Tecla `D`** (en ventana) | — | Activa o desactiva manualmente el **Modo Arrastre**. |
+| **Tecla `Q` / `[X]` / `Ctrl+C`** | — | Cierra el programa de forma segura sin necesidad de voz. |
 
+### Comandos de Voz
+| Categoría | Comandos directos | Ejemplos naturales (con Gemini `.env`) |
+| :--- | :--- | :--- |
+| **Juego** | `"abrir juego"`, `"cerrar juego"` | *"inicia el juego"*, *"cierra vampire survivors"* |
+| **Modos** | `"modo ratón"`, `"modo teclado"`, `"modo flechas"` | *"quiero usar las flechitas"*, *"cambia a mouse"* |
+| **Movimiento** | `"mover"`, `"detener"`, `"arriba"`, `"abajo"`, `"izquierda"`, `"derecha"` | *"suelta el mouse"*, *"muévete hacia la derecha"* |
+| **Acciones** | `"clic"`, `"doble clic"`, `"espacio"`, `"enter"`, `"escape"`, `"captura"` | *"pausa el juego"*, *"saca una foto"*, *"despacio"* |
+| **Sistema** | `"salir del programa"` | *"cierra la aplicación"* |
