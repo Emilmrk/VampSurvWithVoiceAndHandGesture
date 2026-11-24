@@ -7,7 +7,8 @@ import signal
 
 from state import app_state
 from gestos import reconocer_gestos
-from game import controlar_juego_loop, verificar_o_configurar_juego, set_mouse_up, release_all_keys
+from launcher import verificar_o_configurar_juego
+from game import controlar_juego_loop, set_mouse_up, release_all_keys
 
 
 def signal_handler(sig, frame):

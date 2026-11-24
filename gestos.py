@@ -1,14 +1,15 @@
 """
-Módulo de reconocimiento de gestos de alta precisión y control de cursor/teclado.
+Módulo de visión computacional y control por gestos.
 Soporta:
-- Modo MOUSE: Cursor suavizado (EMA), Zona Activa (ROI), Pellizco Izquierdo (clic/arrastre) y Derecho.
-- Modo JOYSTICK VIRTUAL (WASD / Flechas): Mueve la mano respecto al centro para mantener teclas de dirección.
-- Salida sin voz: Tecla 'q', botón 'X' de la ventana o Ctrl+C en consola.
+- Modo MOUSE: Cursor suavizado (EMA adaptativo), ROI activa, Pellizco Izquierdo (clic/arrastre) y Derecho.
+- Modo JOYSTICK VIRTUAL (WASD / Flechas): Detección de inclinación respecto al centro con soporte de diagonales.
+- Interpolador dedicado a 120 Hz para máxima fluidez del cursor sin micro-pausas.
 """
+import math
+import threading
+import time
 import cv2
 import mediapipe as mp
-import math
-import time
 
 import config
 from state import app_state
@@ -26,7 +27,7 @@ from game import (
 WINDOW_NAME = "Control Gestual - Vampire Survivors"
 
 
-def es_wsl():
+def es_wsl() -> bool:
     """Detecta si el entorno actual es Windows Subsystem for Linux (WSL)."""
     try:
         with open("/proc/version", "r") as f:
@@ -35,13 +36,13 @@ def es_wsl():
         return False
 
 
-def calcular_distancia(p1, p2):
+def calcular_distancia(p1: tuple, p2: tuple) -> float:
     """Calcula la distancia euclidiana entre dos puntos (x, y)."""
     return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
 
 def inicializar_camara():
-    """Abre y configura la cámara buscando automáticamente el índice disponible."""
+    """Abre y configura la cámara probando índices y optimizando para 60 FPS nativos."""
     indices_a_probar = [config.CAMERA_INDEX] + [i for i in range(4) if i != config.CAMERA_INDEX]
     cap = None
     indice_encontrado = None
@@ -65,13 +66,7 @@ def inicializar_camara():
         print("[ERROR CRÍTICO] No se detectó ninguna cámara de video disponible.")
         if es_wsl():
             print("\n[DIAGNÓSTICO: ENTORNO WSL2 DETECTADO]")
-            print("Estás ejecutando el programa dentro de Ubuntu WSL2.")
-            print("WSL2 es una máquina virtual y por defecto NO tiene acceso directo a los")
-            print("dispositivos USB (como tu Logitech Pro) que están conectados a Windows.")
-            print("\n>>> CÓMO SOLUCIONARLO:")
-            print("Opción A (Recomendada): Ejecuta el proyecto directamente en Windows.")
-            print("   Abre PowerShell en Windows y ejecuta: python main.py")
-            print("\nOpción B: Conectar la cámara USB a WSL2 usando 'usbipd-win'.")
+            print("Ejecuta el proyecto directamente en Windows desde PowerShell: python main.py")
         print("=" * 65 + "\n")
         return None
 
@@ -89,8 +84,8 @@ def inicializar_camara():
     return cap
 
 
-def obtener_tamano_pantalla():
-    """Obtiene la resolución de pantalla de forma segura."""
+def obtener_tamano_pantalla() -> tuple:
+    """Obtiene la resolución de pantalla del monitor de forma segura."""
     try:
         import pyautogui
         return pyautogui.size()
@@ -106,7 +101,6 @@ def _cursor_interpolator_loop(stop_event, init_x: float, init_y: float):
         target = app_state.get_cursor_target()
         if target is not None and app_state.control_mode == "mouse":
             tx, ty = target
-            # Interpolación rápida hacia el objetivo (factor 0.35 a 120 Hz)
             cur_x += (tx - cur_x) * 0.35
             cur_y += (ty - cur_y) * 0.35
             ix, iy = int(cur_x), int(cur_y)
@@ -116,8 +110,181 @@ def _cursor_interpolator_loop(stop_event, init_x: float, init_y: float):
         time.sleep(0.008)
 
 
+def _procesar_modo_mouse(
+    index_tip: tuple,
+    thumb_tip: tuple,
+    middle_tip: tuple,
+    roi_bounds: tuple,
+    screen_size: tuple,
+    smoothed_pos: tuple,
+    pinching_states: tuple,
+    is_left_pinching: bool,
+    is_right_pinching: bool,
+    todos_extendidos: bool,
+    frame
+) -> tuple:
+    """
+    Gestiona el desplazamiento del cursor en pantalla y la lógica de clics (Pellizcos y Palma abierta).
+    Retorna (current_gesture, smoothed_x, smoothed_y, is_left_pinching_prev, is_right_pinching_prev).
+    """
+    roi_x_min, roi_y_min, roi_w, roi_h = roi_bounds
+    screen_w, screen_h = screen_size
+    smoothed_x, smoothed_y = smoothed_pos
+    is_left_pinching_prev, is_right_pinching_prev = pinching_states
+
+    norm_x = (index_tip[0] - roi_x_min) / float(roi_w)
+    norm_y = (index_tip[1] - roi_y_min) / float(roi_h)
+    clamped_x = max(0.0, min(1.0, norm_x))
+    clamped_y = max(0.0, min(1.0, norm_y))
+
+    target_screen_x = clamped_x * screen_w
+    target_screen_y = clamped_y * screen_h
+
+    # Suavizado adaptativo: mayor filtro en reposo, mayor respuesta en movimiento
+    dx_s = target_screen_x - smoothed_x
+    dy_s = target_screen_y - smoothed_y
+    dist_px = math.hypot(dx_s, dy_s)
+    alpha = config.SMOOTHING_ALPHA if dist_px < 40.0 else min(0.65, config.SMOOTHING_ALPHA * 1.8)
+    smoothed_x += alpha * dx_s
+    smoothed_y += alpha * dy_s
+
+    app_state.set_cursor_target(smoothed_x, smoothed_y)
+
+    if todos_extendidos and not is_left_pinching and not is_right_pinching:
+        current_gesture = "Palma Abierta (Parada)"
+        if is_left_pinching_prev or app_state.modo_arrastre:
+            set_mouse_up()
+            app_state.modo_arrastre = False
+        is_left_pinching_prev = False
+        is_right_pinching_prev = False
+
+    elif is_left_pinching:
+        current_gesture = "Pellizco Clic Izquierdo"
+        cv2.line(frame, thumb_tip, index_tip, (0, 255, 0), 3)
+        if not is_left_pinching_prev:
+            set_mouse_down()
+        is_left_pinching_prev = True
+
+    elif is_right_pinching:
+        current_gesture = "Pellizco Clic Derecho"
+        cv2.line(frame, thumb_tip, middle_tip, (255, 0, 255), 3)
+        if not is_right_pinching_prev:
+            click_mouse(button="right")
+        is_right_pinching_prev = True
+
+    else:
+        current_gesture = "Apuntando (Libre)"
+        cv2.line(frame, thumb_tip, index_tip, (0, 165, 255), 1)
+        if is_left_pinching_prev and not app_state.modo_arrastre:
+            set_mouse_up()
+        is_left_pinching_prev = False
+        is_right_pinching_prev = False
+
+    if app_state.modo_arrastre:
+        current_gesture += " + Arrastre"
+        set_mouse_down()
+
+    return current_gesture, smoothed_x, smoothed_y, is_left_pinching_prev, is_right_pinching_prev
+
+
+def _procesar_modo_joystick(
+    middle_mcp: tuple,
+    thumb_tip: tuple,
+    index_tip: tuple,
+    center: tuple,
+    deadzone_r: int,
+    modo_actual: str,
+    is_left_pinching_prev: bool,
+    is_left_pinching: bool,
+    todos_extendidos: bool,
+    frame
+) -> tuple:
+    """
+    Gestiona el Joystick Virtual calculando la desviación de la mano respecto al centro
+    y activando las teclas direccionales correspondientes (WASD o Flechas).
+    Retorna (current_gesture, is_left_pinching_prev).
+    """
+    key_map = (
+        {"up": "w", "down": "s", "left": "a", "right": "d"}
+        if modo_actual == "wasd"
+        else {"up": "up", "down": "down", "left": "left", "right": "right"}
+    )
+
+    center_x, center_y = center
+    dx = middle_mcp[0] - center_x
+    dy = middle_mcp[1] - center_y
+    dist_center = math.hypot(dx, dy)
+
+    cv2.line(frame, center, middle_mcp, (0, 255, 255), 2)
+
+    if todos_extendidos and not is_left_pinching:
+        release_all_keys()
+        current_gesture = "Palma Abierta (Neutro)"
+    elif dist_center > deadzone_r:
+        teclas = set()
+        umbral_eje = deadzone_r * 0.55
+        if dy < -umbral_eje:
+            teclas.add(key_map["up"])
+        elif dy > umbral_eje:
+            teclas.add(key_map["down"])
+        if dx < -umbral_eje:
+            teclas.add(key_map["left"])
+        elif dx > umbral_eje:
+            teclas.add(key_map["right"])
+
+        actualizar_teclas_direccion(teclas)
+        current_gesture = "Teclas: " + "+".join(sorted(k.upper() for k in teclas)) if teclas else "Centro"
+    else:
+        release_all_keys()
+        current_gesture = "Joystick Centro (Neutro)"
+
+    if is_left_pinching:
+        cv2.line(frame, thumb_tip, index_tip, (0, 255, 0), 3)
+        if not is_left_pinching_prev:
+            press_key("space")
+        is_left_pinching_prev = True
+    else:
+        is_left_pinching_prev = False
+
+    return current_gesture, is_left_pinching_prev
+
+
+def _dibujar_hud(
+    frame,
+    fps: float,
+    modo_actual: str,
+    current_gesture: str,
+    roi_bounds: tuple,
+    center: tuple,
+    deadzone_r: int
+):
+    """Renderiza las guías visuales en pantalla y el panel de información en vivo (HUD)."""
+    roi_x_min, roi_y_min, roi_x_max, roi_y_max = roi_bounds
+    center_x, center_y = center
+
+    if modo_actual == "mouse":
+        cv2.rectangle(frame, (roi_x_min, roi_y_min), (roi_x_max, roi_y_max), (255, 200, 0), 2)
+        cv2.putText(frame, "Zona Activa (Mouse)", (roi_x_min + 5, roi_y_min - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1)
+    else:
+        cv2.circle(frame, (center_x, center_y), deadzone_r, (255, 200, 0), 2)
+        cv2.putText(frame, f"Joystick ({modo_actual.upper()})", (center_x - 65, center_y - deadzone_r - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 200, 0), 2)
+
+    hud_text = [
+        f"FPS: {fps:.1f} | Modo [M]: {modo_actual.upper()}",
+        f"Gesto: {current_gesture}",
+        f"Arrastre [D]: {'ON' if app_state.modo_arrastre else 'OFF'}",
+        f"Ultimo Voz: {app_state.ultimo_comando}",
+        "Salir: [Q] o cerrar ventana [X]"
+    ]
+    for i, text in enumerate(hud_text):
+        cv2.putText(frame, text, (15, 28 + i * 24),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+
 def reconocer_gestos(stop_event=None):
-    """Bucle principal de procesamiento de visión computacional y control por gestos."""
+    """Bucle principal de procesamiento de visión computacional y control gestual."""
     if stop_event is None:
         stop_event = app_state.stop_event
 
@@ -136,11 +303,8 @@ def reconocer_gestos(stop_event=None):
     mp_draw = mp.solutions.drawing_utils
 
     screen_w, screen_h = obtener_tamano_pantalla()
+    smoothed_x, smoothed_y = screen_w / 2.0, screen_h / 2.0
 
-    smoothed_x = screen_w / 2.0
-    smoothed_y = screen_h / 2.0
-
-    import threading
     interp_thread = threading.Thread(
         target=_cursor_interpolator_loop,
         args=(stop_event, smoothed_x, smoothed_y),
@@ -151,12 +315,10 @@ def reconocer_gestos(stop_event=None):
 
     is_left_pinching_prev = False
     is_right_pinching_prev = False
-
     prev_time = time.time()
     fps = 0.0
 
     print("[GESTOS] Activo. Teclas en ventana: [Q] Salir | [M] Cambiar Modo | [D] Arrastre | [X] Cerrar")
-
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
 
     try:
@@ -186,14 +348,12 @@ def reconocer_gestos(stop_event=None):
 
             hand_detected = results.multi_hand_landmarks is not None
             app_state.manos_detectadas = 1 if hand_detected else 0
-
             current_gesture = "Sin Mano"
             modo_actual = app_state.control_mode
 
             if hand_detected:
                 hand_landmarks = results.multi_hand_landmarks[0]
                 mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
                 landmarks = hand_landmarks.landmark
 
                 wrist = (int(landmarks[0].x * frame_w), int(landmarks[0].y * frame_h))
@@ -205,7 +365,6 @@ def reconocer_gestos(stop_event=None):
                 pinky_tip = (int(landmarks[20].x * frame_w), int(landmarks[20].y * frame_h))
 
                 hand_scale = max(20.0, calcular_distancia(wrist, middle_mcp))
-
                 todos_extendidos = (
                     index_tip[1] < landmarks[6].y * frame_h and
                     middle_tip[1] < landmarks[10].y * frame_h and
@@ -213,113 +372,26 @@ def reconocer_gestos(stop_event=None):
                     pinky_tip[1] < landmarks[18].y * frame_h
                 )
 
-                pinch_left_ratio = calcular_distancia(thumb_tip, index_tip) / hand_scale
-                is_left_pinching = pinch_left_ratio < config.PINCH_THRESHOLD_RATIO
-
-                pinch_right_ratio = calcular_distancia(thumb_tip, middle_tip) / hand_scale
-                is_right_pinching = pinch_right_ratio < config.PINCH_THRESHOLD_RATIO
+                is_left_pinching = (calcular_distancia(thumb_tip, index_tip) / hand_scale) < config.PINCH_THRESHOLD_RATIO
+                is_right_pinching = (calcular_distancia(thumb_tip, middle_tip) / hand_scale) < config.PINCH_THRESHOLD_RATIO
 
                 if modo_actual == "mouse":
-                    # ==========================================
-                    # MODO MOUSE (Cursor + Pellizco / Arrastre)
-                    # ==========================================
-                    norm_x = (index_tip[0] - roi_x_min) / float(roi_w)
-                    norm_y = (index_tip[1] - roi_y_min) / float(roi_h)
-                    clamped_x = max(0.0, min(1.0, norm_x))
-                    clamped_y = max(0.0, min(1.0, norm_y))
-
-                    target_screen_x = clamped_x * screen_w
-                    target_screen_y = clamped_y * screen_h
-
-                    # Suavizado adaptativo según velocidad (elimina temblor en reposo y evita retraso en movimientos rápidos)
-                    dx_s = target_screen_x - smoothed_x
-                    dy_s = target_screen_y - smoothed_y
-                    dist_px = math.hypot(dx_s, dy_s)
-                    alpha = config.SMOOTHING_ALPHA if dist_px < 40.0 else min(0.65, config.SMOOTHING_ALPHA * 1.8)
-                    smoothed_x += alpha * dx_s
-                    smoothed_y += alpha * dy_s
-
-                    app_state.set_cursor_target(smoothed_x, smoothed_y)
-
-                    if todos_extendidos and not is_left_pinching and not is_right_pinching:
-                        current_gesture = "Palma Abierta (Parada)"
-                        if is_left_pinching_prev or app_state.modo_arrastre:
-                            set_mouse_up()
-                            app_state.modo_arrastre = False
-                        is_left_pinching_prev = False
-                        is_right_pinching_prev = False
-
-                    elif is_left_pinching:
-                        current_gesture = "Pellizco Clic Izquierdo"
-                        cv2.line(frame, thumb_tip, index_tip, (0, 255, 0), 3)
-                        if not is_left_pinching_prev:
-                            set_mouse_down()
-                        is_left_pinching_prev = True
-
-                    elif is_right_pinching:
-                        current_gesture = "Pellizco Clic Derecho"
-                        cv2.line(frame, thumb_tip, middle_tip, (255, 0, 255), 3)
-                        if not is_right_pinching_prev:
-                            click_mouse(button="right")
-                        is_right_pinching_prev = True
-
-                    else:
-                        current_gesture = "Apuntando (Libre)"
-                        cv2.line(frame, thumb_tip, index_tip, (0, 165, 255), 1)
-                        if is_left_pinching_prev and not app_state.modo_arrastre:
-                            set_mouse_up()
-                        is_left_pinching_prev = False
-                        is_right_pinching_prev = False
-
-                    if app_state.modo_arrastre:
-                        current_gesture += " + Arrastre"
-                        set_mouse_down()
-
-                else:
-                    # ==========================================
-                    # MODO JOYSTICK VIRTUAL (WASD / FLECHAS)
-                    # ==========================================
-                    key_map = (
-                        {"up": "w", "down": "s", "left": "a", "right": "d"}
-                        if modo_actual == "wasd"
-                        else {"up": "up", "down": "down", "left": "left", "right": "right"}
+                    current_gesture, smoothed_x, smoothed_y, is_left_pinching_prev, is_right_pinching_prev = (
+                        _procesar_modo_mouse(
+                            index_tip, thumb_tip, middle_tip,
+                            (roi_x_min, roi_y_min, roi_w, roi_h),
+                            (screen_w, screen_h),
+                            (smoothed_x, smoothed_y),
+                            (is_left_pinching_prev, is_right_pinching_prev),
+                            is_left_pinching, is_right_pinching, todos_extendidos, frame
+                        )
                     )
-
-                    dx = middle_mcp[0] - center_x
-                    dy = middle_mcp[1] - center_y
-                    dist_center = math.hypot(dx, dy)
-
-                    cv2.line(frame, (center_x, center_y), middle_mcp, (0, 255, 255), 2)
-
-                    if todos_extendidos and not is_left_pinching:
-                        release_all_keys()
-                        current_gesture = "Palma Abierta (Neutro)"
-                    elif dist_center > deadzone_r:
-                        teclas = set()
-                        umbral_eje = deadzone_r * 0.55
-                        if dy < -umbral_eje:
-                            teclas.add(key_map["up"])
-                        elif dy > umbral_eje:
-                            teclas.add(key_map["down"])
-                        if dx < -umbral_eje:
-                            teclas.add(key_map["left"])
-                        elif dx > umbral_eje:
-                            teclas.add(key_map["right"])
-
-                        actualizar_teclas_direccion(teclas)
-                        current_gesture = "Teclas: " + "+".join(sorted(k.upper() for k in teclas)) if teclas else "Centro"
-                    else:
-                        release_all_keys()
-                        current_gesture = "Joystick Centro (Neutro)"
-
-                    if is_left_pinching:
-                        cv2.line(frame, thumb_tip, index_tip, (0, 255, 0), 3)
-                        if not is_left_pinching_prev:
-                            press_key("space")
-                        is_left_pinching_prev = True
-                    else:
-                        is_left_pinching_prev = False
-
+                else:
+                    current_gesture, is_left_pinching_prev = _procesar_modo_joystick(
+                        middle_mcp, thumb_tip, index_tip,
+                        (center_x, center_y), deadzone_r, modo_actual,
+                        is_left_pinching_prev, is_left_pinching, todos_extendidos, frame
+                    )
             else:
                 if not app_state.modo_arrastre and is_left_pinching_prev:
                     set_mouse_up()
@@ -328,31 +400,16 @@ def reconocer_gestos(stop_event=None):
 
             app_state.gesto_actual = current_gesture
 
-            # Dibujar guías visuales según modo
-            if modo_actual == "mouse":
-                cv2.rectangle(frame, (roi_x_min, roi_y_min), (roi_x_max, roi_y_max), (255, 200, 0), 2)
-                cv2.putText(frame, "Zona Activa (Mouse)", (roi_x_min + 5, roi_y_min - 8),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1)
-            else:
-                cv2.circle(frame, (center_x, center_y), deadzone_r, (255, 200, 0), 2)
-                cv2.putText(frame, f"Joystick ({modo_actual.upper()})", (center_x - 65, center_y - deadzone_r - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 200, 0), 2)
-
             curr_time = time.time()
             fps = 1.0 / max(1e-5, (curr_time - prev_time))
             prev_time = curr_time
             app_state.fps_camara = fps
 
-            hud_text = [
-                f"FPS: {fps:.1f} | Modo [M]: {modo_actual.upper()}",
-                f"Gesto: {current_gesture}",
-                f"Arrastre [D]: {'ON' if app_state.modo_arrastre else 'OFF'}",
-                f"Ultimo Voz: {app_state.ultimo_comando}",
-                "Salir: [Q] o cerrar ventana [X]"
-            ]
-            for i, text in enumerate(hud_text):
-                cv2.putText(frame, text, (15, 28 + i * 24),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            _dibujar_hud(
+                frame, fps, modo_actual, current_gesture,
+                (roi_x_min, roi_y_min, roi_x_max, roi_y_max),
+                (center_x, center_y), deadzone_r
+            )
 
             cv2.imshow(WINDOW_NAME, frame)
 
@@ -372,7 +429,7 @@ def reconocer_gestos(stop_event=None):
                     set_mouse_up()
                 print(f"[ESTADO] Arrastre manual: {'ON' if nuevo else 'OFF'}")
 
-            # Detectar cierre de la ventana con el botón 'X'
+            # Botón 'X' de la ventana
             if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
                 print("[SISTEMA] Ventana cerrada por el usuario [X]. Saliendo...")
                 stop_event.set()

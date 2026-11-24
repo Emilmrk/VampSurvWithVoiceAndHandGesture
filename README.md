@@ -13,7 +13,8 @@ Sistema de **Interacción Humano-Computador (IHC) y Accesibilidad** desarrollado
 ├── gestos.py          # Visión por computador (MediaPipe Hands, suavizado EMA, Joystick Virtual)
 ├── voz.py             # Captura y transcripción de voz (Vosk offline / Google Speech API)
 ├── nlu.py             # Intérprete NLU con Gemini API y rotación automática de modelos por cuota
-├── game.py            # Simulación de periféricos (PyDirectInput/PyAutoGUI) y selector de juego
+├── launcher.py        # Selector interactivo de juego, auto-detección Steam y persistencia
+├── game.py            # Simulación de periféricos (PyDirectInput/PyAutoGUI) y enrutador de comandos
 ├── testvoz.py         # Utilidad de diagnóstico rápido para micrófono y reconocimiento de voz
 ├── runandawait.py     # Utilidad de prueba para síntesis de voz (Text-to-Speech)
 ├── requirements.txt   # Dependencias del proyecto
