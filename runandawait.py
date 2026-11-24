@@ -1,20 +1,26 @@
-import pyttsx3
+"""
+Script de prueba para síntesis de voz (Text-to-Speech) con pyttsx3.
+Permite verificar la salida de audio por altavoces / auriculares.
+"""
 import threading
 
-engine = pyttsx3.init()
-
 def speak(text):
+    """Sintetiza voz de manera segura en un hilo independiente."""
     def run_speak():
-        engine.say(text)
-        engine.startLoop(False)  # Iniciar el bucle sin bloquear
-        engine.iterate()  # Procesar la cola de comandos
-        engine.endLoop()  # Finalizar el bucle
-        print("El texto ha sido hablado con éxito.")  # Añadimos un print para depuración
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            engine.say(text)
+            engine.runAndWait()
+            print("[TTS] Texto reproducido con éxito.")
+        except Exception as e:
+            print(f"[TTS ERROR] No se pudo inicializar pyttsx3: {e}")
 
     speak_thread = threading.Thread(target=run_speak)
     speak_thread.start()
-    speak_thread.join()  # Esperar a que el hilo termine
+    speak_thread.join()
 
-# Probar la función con un texto sencillo
-speak("Esta es una prueba de síntesis de voz.")
-print("Programa terminado con éxito.")
+if __name__ == "__main__":
+    print("Probando síntesis de voz...")
+    speak("Sistema de control por voz y gestos listo.")
+    print("Prueba completada.")

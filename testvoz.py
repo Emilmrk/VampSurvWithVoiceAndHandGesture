@@ -1,24 +1,50 @@
+"""
+Script de prueba para verificación rápida del micrófono y reconocimiento de voz.
+Permite comprobar si el micrófono capta audio y si Google Speech API responde.
+"""
 import speech_recognition as sr
 
-recognizer = sr.Recognizer()
+def probar_microfono():
+    recognizer = sr.Recognizer()
+    recognizer.energy_threshold = 300
+    recognizer.dynamic_energy_threshold = True
 
-def reconocer_voz():
-    with sr.Microphone() as source:
-        print("Di algo:")
-        audio = recognizer.listen(source)
+    try:
+        microphone = sr.Microphone()
+    except Exception as e:
+        print(f"[ERROR] No se pudo acceder al micrófono: {e}")
+        return
 
+    print("=" * 50)
+    print("      PRUEBA DE RECONOCIMIENTO DE VOZ")
+    print("=" * 50)
+    print("[1/2] Calibrando ruido ambiental por 1 segundo...")
+    with microphone as source:
+        recognizer.adjust_for_ambient_noise(source, duration=1.0)
+    print("Calibración completada.")
+
+    print("\n[2/2] Di palabras como 'arriba', 'abajo', 'mover', 'hola'.")
+    print("Presiona Ctrl+C para finalizar.\n")
+
+    while True:
         try:
+            with microphone as source:
+                print(">> Escuchando...")
+                audio = recognizer.listen(source, timeout=3.0, phrase_time_limit=4.0)
+
+            print(">> Procesando audio...")
             texto = recognizer.recognize_google(audio, language="es-ES").lower()
-            print("Has dicho: " + texto)
-            return texto
+            print(f"-> Has dicho: '{texto}'\n")
+
+        except sr.WaitTimeoutError:
+            print("(Silencio prolongado, reintentando...)")
         except sr.UnknownValueError:
-            print("Lo siento, no pude entender lo que dijiste. Intenta de nuevo.")
-            return None
+            print("(No se entendió con claridad, intenta de nuevo)\n")
         except sr.RequestError as e:
-            print(f"No pude acceder al servicio de Google. Error: {e}. Verifica tu conexión.")
-            return None
+            print(f"[ERROR DE RED] No se pudo contactar a Google API: {e}\n")
+        except KeyboardInterrupt:
+            print("\nPrueba finalizada por el usuario.")
+            break
 
 if __name__ == "__main__":
-    while True:
-        reconocer_voz()
-
+    probar_microfono()
