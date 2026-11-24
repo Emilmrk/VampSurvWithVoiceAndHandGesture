@@ -31,6 +31,7 @@ def escuchar_con_google(callback_comando):
         print(f"[VOZ AVISO] No se pudo ajustar ruido ambiental: {e}")
 
     print("[VOZ] Listo para escuchar comandos (di 'arriba', 'abajo', 'mover', 'detener', etc.).")
+    error_red_mostrado = False
 
     while not app_state.stop_event.is_set():
         try:
@@ -39,14 +40,17 @@ def escuchar_con_google(callback_comando):
 
             try:
                 texto = recognizer.recognize_google(audio, language="es-ES").lower()
+                error_red_mostrado = False
                 continuar = callback_comando(texto)
                 if not continuar:
                     break
             except sr.UnknownValueError:
-                pass
+                error_red_mostrado = False
             except sr.RequestError as e:
-                print(f"[VOZ ERROR] Error de conexión con Google API: {e}")
-                time.sleep(1)
+                if not error_red_mostrado:
+                    print(f"[VOZ ADVERTENCIA] Sin conexión con Google Speech ({e}). Reintentando en segundo plano...")
+                    error_red_mostrado = True
+                time.sleep(3.0)
 
         except sr.WaitTimeoutError:
             continue
@@ -97,5 +101,8 @@ def escuchar_comando_continuo(callback_comando):
     """
     try:
         escuchar_con_vosk(callback_comando)
-    except Exception:
+    except Exception as e:
+        if app_state.stop_event.is_set():
+            return
+        print(f"[VOZ] Motor offline Vosk no disponible ({e}). Usando respaldo Google Speech...")
         escuchar_con_google(callback_comando)

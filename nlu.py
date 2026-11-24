@@ -17,6 +17,7 @@ ACCIONES_VALIDAS = {
     "abrir_juego",
     "cerrar_juego",
     "salir_programa",
+    "cambiar_modo",
     "modo_raton",
     "modo_wasd",
     "modo_flechas",
@@ -27,6 +28,7 @@ ACCIONES_VALIDAS = {
     "mover",
     "detener",
     "doble_clic",
+    "clic_derecho",
     "clic",
     "espacio",
     "enter",
@@ -58,10 +60,10 @@ _PROMPT_BASE = (
     "Eres el intérprete de comandos de voz de un sistema de control por voz y gestos para PC y videojuegos.\n"
     "El usuario habla en español, pero el micrófono/STT a veces comete errores fonéticos "
     "(ej. 'despacio' por 'espacio', 'harina' por 'arriba', 'serrar' por 'cerrar', 'clik' por 'clic', 'izquiero' por 'izquierda') "
-    "o usa frases naturales (ej. 'pausa el juego', 'suelta el ratón', 'quiero usar las flechitas', 'saca una foto').\n"
+    "o usa frases naturales (ej. 'pausa el juego', 'suelta el ratón', 'quiero usar las flechitas', 'saca una foto', 'clic secundario').\n"
     "Mapea el texto reconocido a UNA sola acción de esta lista exacta:\n"
-    "abrir_juego, cerrar_juego, salir_programa, modo_raton, modo_wasd, modo_flechas, "
-    "arriba, abajo, izquierda, derecha, mover, detener, doble_clic, clic, espacio, enter, escape, captura, ninguna.\n"
+    "abrir_juego, cerrar_juego, salir_programa, cambiar_modo, modo_raton, modo_wasd, modo_flechas, "
+    "arriba, abajo, izquierda, derecha, mover, detener, doble_clic, clic_derecho, clic, espacio, enter, escape, captura, ninguna.\n"
     "Si es ruido sin sentido o no corresponde a ninguna acción, responde 'ninguna'.\n"
     'Responde exclusivamente JSON válido con el formato: {"accion": "<nombre>"}\n'
     "Texto reconocido: "
@@ -75,7 +77,6 @@ def _puntuar_modelo(nombre: str) -> tuple:
     n = nombre.lower()
     familia = 2 if n.startswith("gemini-") else (1 if n.startswith("gemma-") else 0)
 
-    # Extraer versión numérica principal (ej. 4, 3.8, 2.5)
     match_ver = re.search(r"(\d+)(?:\.(\d+))?", n)
     if match_ver:
         major = int(match_ver.group(1))
@@ -85,7 +86,6 @@ def _puntuar_modelo(nombre: str) -> tuple:
     else:
         major, minor = 0, 0
 
-    # Nivel dentro de la misma versión (pro / flagship > flash / estándar > lite)
     if "lite" in n:
         tier = 1
     elif "flash" in n:
@@ -122,11 +122,16 @@ class GeminiModelRouter:
             ):
                 return list(self._modelos_ordenados)
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        url = "https://generativelanguage.googleapis.com/v1beta/models"
         try:
-            resp = requests.get(url, timeout=max(3.0, config.GEMINI_TIMEOUT_SECONDS))
+            resp = requests.get(
+                url,
+                headers={"x-goog-api-key": api_key},
+                timeout=max(3.0, config.GEMINI_TIMEOUT_SECONDS),
+            )
             if resp.status_code != 200:
-                return self._modelos_ordenados or ["gemini-2.5-flash"]
+                with self._lock:
+                    return list(self._modelos_ordenados) if self._modelos_ordenados else ["gemini-2.5-flash"]
 
             candidatos = []
             for item in resp.json().get("models", []):
@@ -172,9 +177,16 @@ class GeminiModelRouter:
 
     def registrar_exito(self, modelo: str):
         with self._lock:
+            self._aviso_sin_cuota_emitido = False
             if self._modelo_activo != modelo:
                 self._modelo_activo = modelo
                 print(f"[GEMINI] Modelo activo: {modelo}")
+
+    def notificar_sin_cuota_una_vez(self, mensaje: str):
+        with self._lock:
+            if not self._aviso_sin_cuota_emitido:
+                self._aviso_sin_cuota_emitido = True
+                print(mensaje)
 
 
 _router = GeminiModelRouter()
@@ -214,9 +226,9 @@ def interpretar_comando_con_gemini(texto: str) -> str | None:
 
     disponibles = _router.obtener_disponibles(api_key)
     if not disponibles:
-        if not _router._aviso_sin_cuota_emitido:
-            _router._aviso_sin_cuota_emitido = True
-            print("[GEMINI] Todos los modelos en enfriamiento temporal; usando solo comandos locales hasta que recuperen cuota.")
+        _router.notificar_sin_cuota_una_vez(
+            "[GEMINI] Todos los modelos en enfriamiento temporal; usando solo comandos locales hasta que recuperen cuota."
+        )
         return None
 
     intentados = set()
@@ -228,7 +240,7 @@ def interpretar_comando_con_gemini(texto: str) -> str | None:
             break
         intentados.add(modelo)
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
         gen_config = {"temperature": 0.0, "maxOutputTokens": 256}
         if modelo.lower().startswith("gemini-"):
             gen_config["responseMimeType"] = "application/json"
@@ -239,7 +251,12 @@ def interpretar_comando_con_gemini(texto: str) -> str | None:
         }
 
         try:
-            resp = requests.post(url, json=payload, timeout=config.GEMINI_TIMEOUT_SECONDS)
+            resp = requests.post(
+                url,
+                headers={"x-goog-api-key": api_key},
+                json=payload,
+                timeout=config.GEMINI_TIMEOUT_SECONDS,
+            )
 
             if resp.status_code == 200:
                 data = resp.json()
@@ -250,7 +267,6 @@ def interpretar_comando_con_gemini(texto: str) -> str | None:
                     .get("text", "")
                 )
                 accion = _extraer_accion_de_respuesta(contenido)
-                _router._aviso_sin_cuota_emitido = False
                 _router.registrar_exito(modelo)
                 if accion and accion != "ninguna":
                     return accion
@@ -275,17 +291,21 @@ def interpretar_comando_con_gemini(texto: str) -> str | None:
         except Exception:
             return None
 
-    if not _router._aviso_sin_cuota_emitido:
-        _router._aviso_sin_cuota_emitido = True
-        print("[GEMINI] Modelos sin cuota temporalmente; usando comandos locales hasta recuperación.")
+    _router.notificar_sin_cuota_una_vez(
+        "[GEMINI] Modelos sin cuota temporalmente; usando comandos locales hasta recuperación."
+    )
     return None
 
 
 def precalentar_router():
-    """Pre-lista y prueba el mejor modelo disponible en segundo plano al iniciar."""
-    if getattr(config, "GEMINI_API_KEY", ""):
-        threading.Thread(
-            target=lambda: interpretar_comando_con_gemini("calibracion"),
-            name="HiloGeminiWarmup",
-            daemon=True,
-        ).start()
+    """Pre-lista y ordena los modelos disponibles en segundo plano sin consumir cuota de generación."""
+    api_key = getattr(config, "GEMINI_API_KEY", "")
+    if not api_key:
+        return
+
+    def _warmup():
+        modelos = _router.listar_modelos(api_key)
+        if modelos:
+            print(f"[GEMINI NLU] Router listo ({len(modelos)} modelos disponibles, prioridad: {modelos[0]}).")
+
+    threading.Thread(target=_warmup, name="HiloGeminiWarmup", daemon=True).start()
